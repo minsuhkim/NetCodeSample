@@ -39,7 +39,7 @@ public class GameManager : NetworkBehaviour
 
     // 현재 턴
     private NetworkVariable<SquareState> turnState = new();
-    private GameOverState gameOverState = GameOverState.NotOver;
+    public NetworkVariable<GameOverState> gameOverState = new();
     private SquareState _localPlayerType = SquareState.None;
 
     private void Awake()
@@ -57,11 +57,12 @@ public class GameManager : NetworkBehaviour
 
     private void Start()
     {
-        for(int y=0; y<3; y++)
+        for (int y = 0; y < 3; y++)
         {
-            for(int x=0; x<3; x++)
+            for (int x = 0; x < 3; x++)
             {
                 board[y, x] = new NetworkVariable<SquareState>();
+                board[y, x].Value = SquareState.None;
             }
         }
         NetworkManager.Singleton.OnConnectionEvent += (networkManager, connectionEventData) =>
@@ -76,6 +77,7 @@ public class GameManager : NetworkBehaviour
 
     public void StartGame()
     {
+        //gameOverState.Value = GameOverState.NotOver;
         OnTurnChanged?.Invoke(SquareState.Cross);
         if (IsHost)
         {
@@ -102,22 +104,17 @@ public class GameManager : NetworkBehaviour
     {
         // 어떤 클라이언트든 요청할 수 있다.
         // 입력이 유효한가?
-        //Logger.Info($"{nameof(ReqValidateRpc)} {x},{y},{state}");
-        //if (state != turnState.Value)
-        //{
-        //    Logger.Info("Invalidate");
-        //}
-        //else
-        //{
-        //    Logger.Info("Validate");
-        //}
-        if (board[y,x].Value != SquareState.None)
+        if (_localPlayerType != turnState.Value)
         {
             return;
         }
 
-        board[y, x].Value = state;
-        CreateMarkRpc( x,  y, state);
+        if (board[y, x].Value != SquareState.None)
+        {
+            return;
+        }
+
+        ChangeBoardStateRpc(x, y, state);
 
         if (turnState.Value == SquareState.Cross)
         {
@@ -127,17 +124,25 @@ public class GameManager : NetworkBehaviour
         {
             turnState.Value = SquareState.Cross;
         }
-
     }
-    [Rpc(SendTo.ClientsAndHost)]
-    public void CreateMarkRpc(int x, int y, SquareState state)
+
+    [Rpc(SendTo.Everyone)]
+    public void ChangeBoardStateRpc(int x, int y, SquareState state)
     {
+        board[y, x].Value = state;
         OnBoardChanged?.Invoke(y, x, state);
+    }
+
+    private bool IsValidPlayerMarker(int x, int y)
+    {
+        return gameOverState.Value == GameOverState.NotOver &&
+            turnState.Value == _localPlayerType &&
+            board[y, x].Value == SquareState.None;
     }
 
     public void PlayMarker(int x, int y)
     {
-        if (_localPlayerType == turnState.Value)
+        if (IsValidPlayerMarker(x, y))
         {
             // 서버에게 입력이 유효한지 요청
             ReqValidateRpc(x, y, _localPlayerType);
